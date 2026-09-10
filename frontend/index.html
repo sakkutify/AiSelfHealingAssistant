@@ -1,0 +1,1302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Healer — AI Self-Healing Incident Assistant</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --surface2: #21262d; --border: #30363d;
+    --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
+    --green: #3fb950; --yellow: #d29922; --red: #f85149; --purple: #bc8cff;
+    --critical: #f85149; --high: #f0883e; --medium: #d29922; --low: #3fb950;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; font-size: 14px; min-height: 100vh; }
+
+  /* Header */
+  .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+  .header-brand { display: flex; align-items: center; gap: 10px; }
+  .header-brand .logo { width: 28px; height: 28px; background: linear-gradient(135deg,#58a6ff,#bc8cff); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px; }
+  .header-brand h1 { font-size: 18px; font-weight: 600; }
+  .header-brand span { color: var(--muted); font-size: 13px; }
+  .header-status { display: flex; align-items: center; gap: 12px; }
+  .conn-badge { font-size: 12px; color: var(--muted); padding: 4px 10px; border: 1px solid var(--border); border-radius: 20px; }
+  .conn-badge.live { color: var(--green); border-color: var(--green); }
+  .btn { padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); cursor: pointer; font-size: 13px; transition: background .15s; }
+  .btn:hover { background: var(--border); }
+  .btn.primary { background: var(--accent); color: #0d1117; border-color: var(--accent); font-weight: 600; }
+  .btn.primary:hover { background: #79c0ff; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+  .status-dot.green { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 2s infinite; }
+  .status-dot.red { background: var(--red); }
+  .status-dot.yellow { background: var(--yellow); }
+  .status-dot.grey { background: var(--muted); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+
+  /* Layout */
+  .layout { display: grid; grid-template-columns: 320px 1fr; height: calc(100vh - 57px); overflow: hidden; }
+  .sidebar { background: var(--surface); border-right: 1px solid var(--border); overflow-y: auto; display: flex; flex-direction: column; }
+  .main { overflow-y: auto; padding: 20px; }
+
+  /* Service tabs */
+  .service-tabs { border-bottom: 1px solid var(--border); padding: 8px 10px 0; display: flex; flex-wrap: wrap; gap: 4px; background: var(--surface); flex-shrink: 0; }
+  .svc-tab { padding: 5px 12px; border-radius: 6px 6px 0 0; font-size: 12px; font-weight: 500; cursor: pointer; color: var(--muted); border: 1px solid transparent; border-bottom: none; transition: all .15s; white-space: nowrap; }
+  .svc-tab:hover { color: var(--text); background: var(--surface2); }
+  .svc-tab.active { color: var(--text); background: var(--bg); border-color: var(--border); margin-bottom: -1px; }
+  .svc-tab .svc-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-right: 5px; background: var(--muted); }
+  .svc-tab.active .svc-dot { background: var(--green); }
+
+  /* Filter toolbar */
+  .filter-toolbar { padding: 8px 12px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; flex-shrink: 0; background: var(--surface); }
+  .filter-toolbar .count-label { font-size: 11px; color: var(--muted); flex: 1; }
+  .filter-toolbar .count-label strong { color: var(--text); }
+  .limit-select { background: var(--surface2); border: 1px solid var(--border); color: var(--text); border-radius: 5px; padding: 3px 6px; font-size: 12px; cursor: pointer; }
+  .filter-btn { display: flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 5px; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); font-size: 12px; cursor: pointer; transition: all .15s; }
+  .filter-btn:hover, .filter-btn.active { border-color: var(--accent); color: var(--accent); }
+  .filter-btn .badge-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); display: none; }
+  .filter-btn.active .badge-dot { display: inline-block; }
+
+  /* Filter panel */
+  .filter-panel { background: var(--surface2); border-bottom: 1px solid var(--border); padding: 12px; display: none; flex-shrink: 0; }
+  .filter-panel.open { display: block; }
+  .filter-group { margin-bottom: 10px; }
+  .filter-group:last-child { margin-bottom: 0; }
+  .filter-label { font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 6px; }
+  .filter-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .fchip { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 500; cursor: pointer; border: 1px solid var(--border); color: var(--muted); background: transparent; transition: all .15s; user-select: none; }
+  .fchip:hover { border-color: var(--accent); color: var(--text); }
+  .fchip.on { background: rgba(88,166,255,.15); color: var(--accent); border-color: var(--accent); }
+  .fchip.on.CRITICAL { background: rgba(248,81,73,.15); color: var(--critical); border-color: var(--critical); }
+  .fchip.on.HIGH { background: rgba(240,136,62,.15); color: var(--high); border-color: var(--high); }
+  .fchip.on.MEDIUM { background: rgba(210,153,34,.15); color: var(--medium); border-color: var(--medium); }
+  .fchip.on.LOW { background: rgba(63,185,80,.15); color: var(--low); border-color: var(--low); }
+  .fchip.on.ERROR { background: rgba(248,81,73,.1); color: var(--critical); border-color: rgba(248,81,73,.4); }
+  .fchip.on.WARN { background: rgba(210,153,34,.1); color: var(--medium); border-color: rgba(210,153,34,.4); }
+  .fchip.on.INFO { background: rgba(88,166,255,.1); color: var(--accent); border-color: rgba(88,166,255,.4); }
+  .filter-search { width: 100%; background: var(--surface); border: 1px solid var(--border); color: var(--text); border-radius: 5px; padding: 5px 8px; font-size: 12px; margin-bottom: 6px; }
+  .filter-search::placeholder { color: var(--muted); }
+  .filter-search:focus { outline: none; border-color: var(--accent); }
+  .error-type-list { max-height: 80px; overflow-y: auto; display: flex; flex-wrap: wrap; gap: 4px; }
+  .filter-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+  .filter-actions button { padding: 3px 10px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; }
+  .filter-actions button:hover { color: var(--text); background: var(--border); }
+  .filter-actions button.apply { background: var(--accent); color: #0d1117; border-color: var(--accent); font-weight: 600; }
+  .filter-actions button.apply:hover { background: #79c0ff; }
+
+  /* Sidebar header */
+  .sidebar-header { padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+
+  /* Incident list */
+  .incident-item { padding: 10px 12px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background .1s; }
+  .incident-item:hover { background: var(--surface2); }
+  .incident-item.active { background: var(--surface2); border-left: 3px solid var(--accent); }
+  .incident-item .svc-label { font-size: 10px; font-weight: 600; color: var(--purple); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 2px; }
+  .incident-item .trace { font-family: monospace; font-size: 11px; color: var(--muted); margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .incident-item .errors { font-size: 12px; font-weight: 500; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .incident-item .meta { display: flex; align-items: center; justify-content: space-between; }
+  .incident-item .time { font-size: 11px; color: var(--muted); }
+
+  /* Badges */
+  .badge { display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+  .badge.CRITICAL { background: rgba(248,81,73,.15); color: var(--critical); border: 1px solid rgba(248,81,73,.3); }
+  .badge.HIGH { background: rgba(240,136,62,.15); color: var(--high); border: 1px solid rgba(240,136,62,.3); }
+  .badge.MEDIUM { background: rgba(210,153,34,.15); color: var(--medium); border: 1px solid rgba(210,153,34,.3); }
+  .badge.LOW { background: rgba(63,185,80,.15); color: var(--low); border: 1px solid rgba(63,185,80,.3); }
+  .badge.resolved { background: rgba(139,148,158,.1); color: var(--muted); border: 1px solid var(--border); }
+
+  /* Stats bar */
+  .stats-bar { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 20px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+  .stat-card .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 6px; }
+  .stat-card .value { font-size: 26px; font-weight: 700; line-height: 1; }
+  .stat-card.critical .value { color: var(--critical); }
+  .stat-card.high .value { color: var(--high); }
+  .stat-card.medium .value { color: var(--medium); }
+  .stat-card.total .value { color: var(--accent); }
+
+  /* Detail panel */
+  .detail-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 60vh; color: var(--muted); gap: 10px; }
+  .detail-empty .icon { font-size: 48px; opacity: .3; }
+  .section-title { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 10px; }
+  .detail-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; }
+  .detail-header h2 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  .detail-header .sub { color: var(--muted); font-size: 13px; font-family: monospace; }
+  .detail-actions { display: flex; gap: 8px; flex-shrink: 0; }
+  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+  .info-box { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+  .info-box .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+  .info-box .content { font-size: 13px; line-height: 1.5; }
+  .rca-box { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .rca-box .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
+  .rca-box .content { font-size: 13px; line-height: 1.6; }
+  .rca-box.fix { border-left: 3px solid var(--green); }
+  .rca-box.pr { border-left: 3px solid var(--purple); }
+  .rca-box.cause { border-left: 3px solid var(--accent); }
+  .error-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+  .error-tag { background: rgba(88,166,255,.1); color: var(--accent); border: 1px solid rgba(88,166,255,.25); padding: 3px 10px; border-radius: 4px; font-size: 12px; font-family: monospace; }
+
+  /* Timeline */
+  .timeline { margin-bottom: 20px; }
+  .timeline-item { display: flex; gap: 12px; padding: 8px 0; position: relative; }
+  .timeline-item:not(:last-child)::before { content:''; position:absolute; left:12px; top:26px; bottom:-8px; width:1px; background:var(--border); }
+  .tl-icon { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; flex-shrink: 0; margin-top: 2px; }
+  .tl-icon.ERROR { background: rgba(248,81,73,.2); color: var(--critical); border: 1px solid rgba(248,81,73,.4); }
+  .tl-icon.WARN { background: rgba(210,153,34,.2); color: var(--medium); border: 1px solid rgba(210,153,34,.4); }
+  .tl-icon.INFO { background: rgba(88,166,255,.1); color: var(--accent); border: 1px solid rgba(88,166,255,.2); }
+  .tl-body { flex: 1; min-width: 0; }
+  .tl-header { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; flex-wrap: wrap; }
+  .tl-service { font-size: 11px; font-weight: 600; color: var(--muted); background: var(--surface2); padding: 1px 6px; border-radius: 3px; }
+  .tl-error { font-size: 11px; font-family: monospace; color: var(--accent); }
+  .tl-time { font-size: 10px; color: var(--muted); margin-left: auto; white-space: nowrap; }
+  .tl-msg { font-size: 12px; color: var(--muted); line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tl-count { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 10px; font-size: 10px; font-weight: 700; background: rgba(88,166,255,.12); color: var(--accent); border: 1px solid rgba(88,166,255,.25); margin-left: 6px; cursor: pointer; user-select: none; }
+  .tl-count:hover { background: rgba(88,166,255,.22); }
+  .tl-duplicates { margin-left: 36px; border-left: 1px dashed var(--border); padding-left: 10px; margin-top: 4px; display: none; }
+  .tl-duplicates.open { display: block; }
+  .tl-dup-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 11px; color: var(--muted); border-bottom: 1px solid rgba(48,54,61,.5); }
+  .tl-dup-row:last-child { border-bottom: none; }
+  .tl-dup-row .tl-time { font-size: 10px; }
+
+  /* Health chips */
+  .services-row { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+  .service-chip { display: flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 5px 12px; font-size: 12px; }
+  .service-chip.STABLE .dot,.service-chip.UP .dot { background: var(--green); }
+  .service-chip.DEGRADED .dot { background: var(--red); animation: pulse 1s infinite; }
+  .service-chip.UNKNOWN .dot,.service-chip.UNREACHABLE .dot { background: var(--muted); }
+  .service-chip .dot { width: 6px; height: 6px; border-radius: 50%; }
+
+  /* Misc */
+  ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  #toast-container { position: fixed; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 9999; }
+  .toast { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; font-size: 13px; max-width: 320px; animation: slide-in .2s ease; box-shadow: 0 4px 12px rgba(0,0,0,.4); }
+  .toast.critical { border-color: var(--critical); } .toast.high { border-color: #f0883e; }
+  @keyframes slide-in { from{transform:translateX(100%);opacity:0} to{transform:translateX(0);opacity:1} }
+  .empty-state { text-align: center; padding: 40px 20px; color: var(--muted); }
+  .no-results { text-align: center; padding: 24px 16px; color: var(--muted); font-size: 12px; }
+  /* Grouped incident list */
+  .incident-group { border-bottom: 1px solid var(--border); }
+  .group-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; background: var(--surface2); user-select: none; transition: background .1s; position: sticky; top: 0; z-index: 1; }
+  .group-header:hover { background: var(--border); }
+  .group-header.has-selected { border-left: 3px solid var(--accent); }
+  .group-arrow { font-size: 9px; color: var(--muted); flex-shrink: 0; width: 10px; }
+  .group-name { font-size: 11px; font-weight: 700; color: var(--text); font-family: monospace; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* ── Inline Dashboard ── */
+  .dash-panel { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; margin-bottom: 20px; overflow: hidden; color: #333; }
+  .dash-top { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 0; }
+  .dash-top-left h2 { font-size: 16px; font-weight: 700; color: #222; }
+  .dash-top-left p { font-size: 12px; color: #888; margin-top: 2px; }
+  .dash-svc-btns { display: flex; gap: 6px; }
+  .dash-svc-btn { padding: 5px 14px; border-radius: 4px; border: 1px solid #ddd; background: #fff; color: #555; font-size: 12px; font-weight: 500; cursor: pointer; transition: all .15s; }
+  .dash-svc-btn:hover { border-color: #aaa; color: #222; }
+  .dash-svc-btn.active { background: #4a90e2; border-color: #4a90e2; color: #fff; }
+  .dash-subtabs { display: flex; border-bottom: 1px solid #e8e8e8; padding: 0 18px; margin-top: 10px; gap: 0; }
+  .dash-stab { padding: 8px 14px; font-size: 13px; color: #888; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .15s; display: flex; align-items: center; gap: 6px; }
+  .dash-stab:hover { color: #333; }
+  .dash-stab.active { color: #4a90e2; border-bottom-color: #4a90e2; font-weight: 500; }
+  .dash-stab .cnt { background: #e8f0fe; color: #4a90e2; border-radius: 10px; padding: 1px 7px; font-size: 11px; font-weight: 600; }
+  .dash-stab.active .cnt.red { background: #fdecea; color: #d32f2f; }
+  .dash-charts-row { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid #e8e8e8; }
+  .dash-chart-card { padding: 14px 18px 10px; position: relative; }
+  .dash-chart-card:first-child { border-right: 1px solid #e8e8e8; }
+  .dash-chart-hdr { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; }
+  .dash-chart-title { font-size: 13px; color: #4a90e2; font-weight: 500; }
+  .dash-chart-stats { display: flex; gap: 18px; }
+  .dash-stat { text-align: right; }
+  .dash-stat .val { font-size: 16px; font-weight: 700; color: #222; }
+  .dash-stat .lbl { font-size: 10px; color: #888; margin-top: 1px; }
+  .dash-chart-body { height: 130px; position: relative; }
+  .dash-chart-legend { display: flex; gap: 16px; margin-top: 8px; padding-bottom: 4px; }
+  .dash-legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #555; }
+  .dash-legend-dot { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+  .dash-controls { display: flex; align-items: center; gap: 14px; padding: 10px 18px; background: #f8f9fa; border-bottom: 1px solid #e8e8e8; }
+  .dash-search-wrap { display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid #ddd; border-radius: 4px; padding: 5px 10px; flex: 0 0 280px; }
+  .dash-search-wrap svg { color: #aaa; flex-shrink: 0; }
+  .dash-search-wrap input { border: none; outline: none; font-size: 13px; color: #333; width: 100%; background: transparent; }
+  .dash-search-wrap input::placeholder { color: #aaa; }
+  .dash-checkbox { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #555; cursor: pointer; user-select: none; }
+  .dash-table-wrap { overflow-x: auto; }
+  .dash-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .dash-table thead tr { border-bottom: 2px solid #e8e8e8; }
+  .dash-table th { padding: 9px 14px; text-align: left; font-size: 11px; font-weight: 600; color: #555; cursor: pointer; white-space: nowrap; user-select: none; }
+  .dash-table th:hover { color: #222; }
+  .dash-table th.sorted { color: #4a90e2; }
+  .dash-table th .sort-icon { color: #ccc; font-size: 10px; }
+  .dash-table th.sorted .sort-icon { color: #4a90e2; }
+  .dash-table tbody tr { border-bottom: 1px solid #f0f0f0; transition: background .1s; cursor: pointer; }
+  .dash-table tbody tr:hover { background: #f5f9ff; }
+  .dash-table tbody tr.active-row { background: #e8f0fe; }
+  .dash-table td { padding: 8px 14px; color: #333; }
+  .dash-table td.trace { font-family: monospace; font-size: 11px; color: #4a90e2; }
+  .dash-table td.trace:hover { text-decoration: underline; }
+  .dash-table td .sbar { height: 3px; border-radius: 2px; margin-top: 3px; background: #4a90e2; max-width: 80px; }
+  .dash-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 700; }
+  .dash-badge.CRITICAL { background: #fdecea; color: #c62828; }
+  .dash-badge.HIGH     { background: #fff3e0; color: #e65100; }
+  .dash-badge.MEDIUM   { background: #fff9c4; color: #f57f17; }
+  .dash-badge.LOW      { background: #e8f5e9; color: #2e7d32; }
+  .dash-badge.resolved { background: #f5f5f5; color: #9e9e9e; }
+  .dash-pr-link { color: #2e7d32; font-size: 11px; text-decoration: none; }
+  .dash-pr-link:hover { text-decoration: underline; }
+  .dash-empty-row td { text-align: center; padding: 24px; color: #aaa; font-size: 13px; }
+  .dash-tr-chips { display: flex; gap: 3px; padding: 0 0 8px; }
+  .dash-tr { padding: 2px 9px; border-radius: 4px; font-size: 11px; font-weight: 500; cursor: pointer; color: #888; border: 1px solid #e0e0e0; background: #fff; transition: all .12s; user-select: none; }
+  .dash-tr:hover { border-color: #4a90e2; color: #4a90e2; }
+  .dash-tr.active { background: #4a90e2; border-color: #4a90e2; color: #fff; }
+  .dash-section-title { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 10px; }
+
+  /* PR status */
+  .pr-badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; border-radius: 10px; font-size: 10px; font-weight: 600; }
+  .pr-badge.created { background: rgba(63,185,80,.15); color: var(--green); border: 1px solid rgba(63,185,80,.3); }
+  .pr-badge.pending { background: rgba(210,153,34,.1); color: var(--yellow); border: 1px solid rgba(210,153,34,.3); }
+  .pr-badge.failed  { background: rgba(248,81,73,.1);  color: var(--red);    border: 1px solid rgba(248,81,73,.3); }
+  .rca-box.github { border-left: 3px solid var(--green); }
+  .pr-link { color: var(--green); text-decoration: none; font-weight: 600; }
+  .pr-link:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-brand">
+    <div class="logo">⚕</div>
+    <div><h1>Healer</h1><span id="header-sub">AI Self-Healing Incident Assistant</span></div>
+    <a href="/analytics" style="margin-left:20px;padding:4px 12px;border-radius:5px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);text-decoration:none;font-size:12px;" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">📊 Analytics</a>
+  </div>
+  <div class="header-status">
+    <div id="target-health-indicator" style="font-size:13px;color:var(--muted);">
+      <span class="status-dot grey"></span>Target: checking…
+    </div>
+    <span id="conn-badge" class="conn-badge">● Connecting…</span>
+    <button class="btn primary" onclick="triggerAnalyze()">⚡ Analyze Now</button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+
+    <!-- Service tabs -->
+    <div class="service-tabs" id="service-tabs">
+      <div class="svc-tab active" data-svc="all" onclick="selectService(this.dataset.svc)">
+        <span class="svc-dot"></span>All Services
+      </div>
+    </div>
+
+    <!-- Filter toolbar -->
+    <div class="filter-toolbar">
+      <span class="count-label" id="count-label">Showing <strong>0</strong> of <strong>0</strong></span>
+      <select class="limit-select" id="limit-select" onchange="onLimitChange(this.value)" title="Max incidents to load">
+        <option value="10">Top 10</option>
+        <option value="25" selected>Top 25</option>
+        <option value="50">Top 50</option>
+        <option value="100">Top 100</option>
+        <option value="200">Top 200</option>
+      </select>
+      <div class="filter-btn" id="filter-btn" onclick="toggleFilterPanel()">
+        ⚙ Filters <span class="badge-dot" id="filter-dot"></span>
+      </div>
+    </div>
+
+    <!-- Filter panel -->
+    <div class="filter-panel" id="filter-panel">
+
+      <div class="filter-group">
+        <div class="filter-label">Status</div>
+        <div class="filter-chips" id="chips-status">
+          <span class="fchip on" data-val="all"    onclick="toggleChip('status','all')">All</span>
+          <span class="fchip"    data-val="open"   onclick="toggleChip('status','open')">Open</span>
+          <span class="fchip"    data-val="resolved" onclick="toggleChip('status','resolved')">Resolved</span>
+        </div>
+      </div>
+
+      <div class="filter-group">
+        <div class="filter-label">Blast Radius</div>
+        <div class="filter-chips" id="chips-severity">
+          <span class="fchip" data-val="CRITICAL" onclick="toggleChip('severity','CRITICAL')">CRITICAL</span>
+          <span class="fchip" data-val="HIGH"     onclick="toggleChip('severity','HIGH')">HIGH</span>
+          <span class="fchip" data-val="MEDIUM"   onclick="toggleChip('severity','MEDIUM')">MEDIUM</span>
+          <span class="fchip" data-val="LOW"      onclick="toggleChip('severity','LOW')">LOW</span>
+        </div>
+      </div>
+
+      <div class="filter-group">
+        <div class="filter-label">Log Level (in raw logs)</div>
+        <div class="filter-chips" id="chips-level">
+          <span class="fchip" data-val="ERROR" onclick="toggleChip('level','ERROR')">ERROR</span>
+          <span class="fchip" data-val="WARN"  onclick="toggleChip('level','WARN')">WARN</span>
+          <span class="fchip" data-val="INFO"  onclick="toggleChip('level','INFO')">INFO</span>
+        </div>
+      </div>
+
+      <div class="filter-group">
+        <div class="filter-label">Error Type</div>
+        <input class="filter-search" id="error-type-search" placeholder="Search error types…" oninput="renderErrorTypeChips()"/>
+        <div class="error-type-list" id="chips-errortype"></div>
+      </div>
+
+      <div class="filter-actions">
+        <button onclick="clearFilters()">Clear all</button>
+        <button class="apply" onclick="toggleFilterPanel()">Done</button>
+      </div>
+    </div>
+
+    <div class="sidebar-header">
+      Incidents <span id="incident-count" style="color:var(--text);">0</span>
+    </div>
+    <div id="incident-list">
+      <div class="empty-state">No incidents yet.<br>Waiting for logs…</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="stats-bar">
+      <div class="stat-card total"><div class="label">Total Incidents</div><div class="value" id="stat-total">0</div></div>
+      <div class="stat-card critical"><div class="label">Critical</div><div class="value" id="stat-critical">0</div></div>
+      <div class="stat-card high"><div class="label">High</div><div class="value" id="stat-high">0</div></div>
+      <div class="stat-card medium"><div class="label">Open</div><div class="value" id="stat-open">0</div></div>
+    </div>
+
+    <!-- ── Inline Log Analyzer Dashboard ── -->
+    <div class="dash-panel">
+      <div class="dash-top">
+        <div class="dash-top-left">
+          <h2>Incidents</h2>
+          <p id="dash-total-label">Loading…</p>
+        </div>
+        <div class="dash-svc-btns" id="dash-svc-btns">
+          <button class="dash-svc-btn active" data-svc="all" onclick="setDashSvc('all')">All</button>
+        </div>
+      </div>
+
+      <div class="dash-subtabs">
+        <div class="dash-stab active" onclick="setDashTab('explore')">Explore</div>
+        <div class="dash-stab" onclick="setDashTab('critical')">
+          Critical &amp; High <span class="cnt red" id="dash-critical-cnt">0</span>
+        </div>
+      </div>
+
+      <div class="dash-charts-row">
+        <!-- Chart 1: Incidents over time -->
+        <div class="dash-chart-card">
+          <div class="dash-chart-hdr">
+            <span class="dash-chart-title">Incidents Over Time</span>
+            <div class="dash-chart-stats" id="dash-stats-1"></div>
+          </div>
+          <div class="dash-tr-chips" id="dash-tr-chips">
+            <span class="dash-tr" data-m="5"   onclick="setDashTR(5)">5m</span>
+            <span class="dash-tr" data-m="15"  onclick="setDashTR(15)">15m</span>
+            <span class="dash-tr" data-m="30"  onclick="setDashTR(30)">30m</span>
+            <span class="dash-tr" data-m="60"  onclick="setDashTR(60)">1h</span>
+            <span class="dash-tr" data-m="360" onclick="setDashTR(360)">6h</span>
+            <span class="dash-tr" data-m="1440" onclick="setDashTR(1440)">24h</span>
+            <span class="dash-tr active" data-m="0" onclick="setDashTR(0)">All</span>
+          </div>
+          <div class="dash-chart-body">
+            <canvas id="dash-chart-timeline"></canvas>
+          </div>
+          <div class="dash-chart-legend" id="dash-legend-1"></div>
+        </div>
+        <!-- Chart 2: Error type volume -->
+        <div class="dash-chart-card">
+          <div class="dash-chart-hdr">
+            <span class="dash-chart-title">Error Distribution</span>
+            <div class="dash-chart-stats" id="dash-stats-2"></div>
+          </div>
+          <div class="dash-chart-body">
+            <canvas id="dash-chart-errors"></canvas>
+          </div>
+          <div class="dash-chart-legend" id="dash-legend-2"></div>
+        </div>
+      </div>
+
+      <div class="dash-controls">
+        <div class="dash-search-wrap">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input type="search" id="dash-search" placeholder="Search trace ID, error type, service…" oninput="renderDashTable()"/>
+        </div>
+        <label class="dash-checkbox">
+          <input type="checkbox" id="dash-hide-resolved" onchange="renderDashTable()"/>
+          Hide Resolved
+        </label>
+        <label class="dash-checkbox">
+          <input type="checkbox" id="dash-hide-low" onchange="renderDashTable()"/>
+          Hide LOW severity
+        </label>
+      </div>
+
+      <div class="dash-table-wrap">
+        <table class="dash-table">
+          <thead>
+            <tr>
+              <th onclick="sortDash('trace_id')">Trace ID <span class="sort-icon" id="si-trace_id">⇅</span></th>
+              <th onclick="sortDash('service_name')">Service <span class="sort-icon" id="si-service_name">⇅</span></th>
+              <th>Error Types</th>
+              <th onclick="sortDash('blast_radius')">Blast Radius <span class="sort-icon" id="si-blast_radius">⇅</span></th>
+              <th onclick="sortDash('log_count')">Log Count <span class="sort-icon" id="si-log_count">⇅</span></th>
+              <th onclick="sortDash('detected_at')">Detected <span class="sort-icon" id="si-detected_at">↓</span></th>
+              <th>PR</th>
+            </tr>
+          </thead>
+          <tbody id="dash-table-body">
+            <tr class="dash-empty-row"><td colspan="7">Waiting for incidents…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <!-- ── End Dashboard ── -->
+
+    <div class="dash-section-title">Service Health</div>
+    <div class="services-row" id="services-row">
+      <div class="service-chip UNKNOWN"><div class="dot"></div>Checking…</div>
+    </div>
+
+    <div id="detail-panel">
+      <div class="detail-empty">
+        <div class="icon">🔍</div>
+        <div>Select an incident from the sidebar</div>
+        <div style="font-size:12px;">Healer polls all services every 30s and analyses incidents automatically</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="toast-container"></div>
+
+<script>
+const API = '';
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let ws = null, reconnectTimer = null;
+let allIncidents = [];        // raw from backend (up to fetchLimit)
+let selectedId = null;
+let activeService = 'all';
+let configuredServices = [];
+let fetchLimit = 25;
+
+// All known error_types seen across loaded incidents
+let knownErrorTypes = new Set();
+
+// Active filter state
+const filters = {
+  status: 'all',          // 'all' | 'open' | 'resolved'
+  severity: new Set(),    // empty = any
+  level: new Set(),       // empty = any  (matches raw_logs level)
+  errorType: new Set(),   // empty = any
+};
+
+// ── WebSocket ─────────────────────────────────────────────────────────────────
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onopen = () => {
+    document.getElementById('conn-badge').textContent = '● Live';
+    document.getElementById('conn-badge').className = 'conn-badge live';
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  };
+  ws.onclose = () => {
+    document.getElementById('conn-badge').textContent = '● Reconnecting…';
+    document.getElementById('conn-badge').className = 'conn-badge';
+    reconnectTimer = setTimeout(connect, 3000);
+  };
+  ws.onerror = () => ws.close();
+  ws.onmessage = e => handleMessage(JSON.parse(e.data));
+}
+
+function handleMessage(msg) {
+  if (msg.type === 'init') {
+    allIncidents = msg.incidents || [];
+    configuredServices = msg.services || [];
+    rebuildKnownErrorTypes();
+    renderServiceTabs();
+    renderErrorTypeChips();
+    renderAll();
+    updateStats(msg.stats);
+    renderHealthFromStats(msg.stats);
+    fetchAllServiceHealth();
+  } else if (msg.type === 'new_incident') {
+    // Only add if within limit; otherwise silently accumulate in backend
+    if (allIncidents.length < fetchLimit) allIncidents.unshift(msg.incident);
+    else allIncidents.unshift(msg.incident); // keep in memory, list is filtered anyway
+    addErrorTypes(msg.incident.error_types || []);
+    renderErrorTypeChips();
+    renderAll();
+    showToast(msg.incident);
+    fetchStats();
+  } else if (msg.type === 'resolved') {
+    const inc = allIncidents.find(i => i.id === msg.incident_id);
+    if (inc) inc.resolved = true;
+    renderAll();
+    if (selectedId === msg.incident_id) renderDetail(msg.incident_id);
+    fetchStats();
+  } else if (msg.type === 'pr_update') {
+    const inc = allIncidents.find(i => i.id === msg.incident_id);
+    if (inc) {
+      inc.pr_status = msg.pr_status;
+      inc.pr_url    = msg.pr_url;
+      inc.pr_number = msg.pr_number;
+      inc.pr_branch = msg.pr_branch;
+    }
+    renderAll();
+    if (selectedId === msg.incident_id) renderDetail(msg.incident_id);
+    if (msg.pr_url) showPrToast(msg);
+  }
+}
+
+// ── Service tabs ──────────────────────────────────────────────────────────────
+function renderServiceTabs() {
+  const c = document.getElementById('service-tabs');
+  const all = `<div class="svc-tab ${activeService==='all'?'active':''}" data-svc="all" onclick="selectService(this.dataset.svc)"><span class="svc-dot"></span>All Services</div>`;
+  const tabs = configuredServices.map(s =>
+    `<div class="svc-tab ${activeService===s.name?'active':''}" data-svc="${esc(s.name)}" onclick="selectService(this.dataset.svc)"><span class="svc-dot"></span>${esc(s.name)}</div>`
+  ).join('');
+  c.innerHTML = all + tabs;
+}
+
+function selectService(name) {
+  activeService = name;
+  selectedId = null;
+  renderServiceTabs();
+  fetchStats();
+  document.getElementById('header-sub').textContent =
+    name === 'all' ? 'AI Self-Healing Incident Assistant' : `AI Self-Healing — ${name}`;
+  document.getElementById('detail-panel').innerHTML =
+    `<div class="detail-empty"><div class="icon">🔍</div><div>Select an incident from the sidebar</div></div>`;
+  fetchIncidents(); // re-fetch from backend with service filter applied
+}
+
+// ── Limit ─────────────────────────────────────────────────────────────────────
+function onLimitChange(val) {
+  fetchLimit = parseInt(val, 10);
+  fetchIncidents();
+}
+
+async function fetchIncidents() {
+  try {
+    const svcParam = activeService !== 'all' ? `&service=${encodeURIComponent(activeService)}` : '';
+    const r = await fetch(`${API}/api/incidents?limit=${fetchLimit}${svcParam}`);
+    allIncidents = await r.json();
+    rebuildKnownErrorTypes();
+    renderErrorTypeChips();
+    renderAll();
+  } catch(e) {}
+}
+
+// ── Filter state ──────────────────────────────────────────────────────────────
+function toggleFilterPanel() {
+  const panel = document.getElementById('filter-panel');
+  const btn = document.getElementById('filter-btn');
+  panel.classList.toggle('open');
+  btn.classList.toggle('active', panel.classList.contains('open'));
+}
+
+function toggleChip(group, val) {
+  if (group === 'status') {
+    filters.status = val;
+    document.querySelectorAll('#chips-status .fchip').forEach(c => {
+      c.classList.toggle('on', c.dataset.val === val);
+    });
+  } else {
+    const set = filters[group];
+    if (set.has(val)) set.delete(val);
+    else set.add(val);
+    const chip = document.querySelector(`#chips-${group} .fchip[data-val="${val}"]`) ||
+                 document.querySelector(`#chips-errortype .fchip[data-val="${CSS.escape(val)}"]`);
+    if (chip) chip.classList.toggle('on', set.has(val));
+  }
+  updateFilterBadge();
+  renderAll();
+}
+
+function toggleErrorTypeChip(val) {
+  const set = filters.errorType;
+  if (set.has(val)) set.delete(val);
+  else set.add(val);
+  renderErrorTypeChips();
+  updateFilterBadge();
+  renderAll();
+}
+
+function clearFilters() {
+  filters.status = 'all';
+  filters.severity.clear();
+  filters.level.clear();
+  filters.errorType.clear();
+  document.getElementById('error-type-search').value = '';
+  document.querySelectorAll('#chips-status .fchip').forEach(c => c.classList.toggle('on', c.dataset.val === 'all'));
+  document.querySelectorAll('#chips-severity .fchip, #chips-level .fchip').forEach(c => c.classList.remove('on'));
+  renderErrorTypeChips();
+  updateFilterBadge();
+  renderAll();
+}
+
+function updateFilterBadge() {
+  const active = filters.status !== 'all' || filters.severity.size || filters.level.size || filters.errorType.size;
+  document.getElementById('filter-btn').classList.toggle('active', active);
+  document.getElementById('filter-dot').style.display = active ? 'inline-block' : 'none';
+}
+
+// ── Error type chips ──────────────────────────────────────────────────────────
+function rebuildKnownErrorTypes() {
+  knownErrorTypes.clear();
+  allIncidents.forEach(inc => (inc.error_types || []).forEach(e => knownErrorTypes.add(e)));
+}
+
+function addErrorTypes(types) {
+  types.forEach(e => knownErrorTypes.add(e));
+}
+
+function renderErrorTypeChips() {
+  const search = (document.getElementById('error-type-search').value || '').toLowerCase();
+  const container = document.getElementById('chips-errortype');
+  const types = [...knownErrorTypes].filter(e => !search || e.toLowerCase().includes(search)).sort();
+  container.innerHTML = types.map(e =>
+    `<span class="fchip ${filters.errorType.has(e)?'on':''}" data-val="${esc(e)}" onclick="toggleErrorTypeChip('${esc(e)}')">${esc(e)}</span>`
+  ).join('') || `<span style="color:var(--muted);font-size:11px;">No error types yet</span>`;
+}
+
+// ── Filtering + rendering ─────────────────────────────────────────────────────
+function applyFilters(list) {
+  return list.filter(inc => {
+    // Service tab filter
+    if (activeService !== 'all' && inc.service_name !== activeService) return false;
+    // Status
+    if (filters.status === 'open' && inc.resolved) return false;
+    if (filters.status === 'resolved' && !inc.resolved) return false;
+    // Severity
+    if (filters.severity.size && !filters.severity.has(inc.blast_radius)) return false;
+    // Error type
+    if (filters.errorType.size && !(inc.error_types||[]).some(e => filters.errorType.has(e))) return false;
+    // Log level (any raw log in this incident must match)
+    if (filters.level.size) {
+      const hasLevel = (inc.raw_logs||[]).some(l => filters.level.has(l.level));
+      if (!hasLevel) return false;
+    }
+    return true;
+  });
+}
+
+// Groups collapsed by user — persists across re-renders
+const collapsedGroups = new Set();
+
+function groupIncidents(list) {
+  const order = [];
+  const map = new Map();
+  for (const inc of list) {
+    const key = (inc.error_types && inc.error_types.length) ? inc.error_types[0] : 'UNKNOWN';
+    if (!map.has(key)) { map.set(key, []); order.push(key); }
+    map.get(key).push(inc);
+  }
+  return { order, map };
+}
+
+function toggleGroup(key) {
+  if (collapsedGroups.has(key)) collapsedGroups.delete(key);
+  else collapsedGroups.add(key);
+  renderAll();
+}
+
+function renderAll() {
+  const visible = applyFilters(allIncidents);
+  renderIncidentList(visible);
+  updateCountLabel(visible.length, allIncidents.length);
+  renderDashboard();
+}
+
+function updateCountLabel(shown, total) {
+  document.getElementById('count-label').innerHTML =
+    `Showing <strong>${shown}</strong> of <strong>${total}</strong>`;
+}
+
+function renderIncidentList(list) {
+  const el = document.getElementById('incident-list');
+  document.getElementById('incident-count').textContent = list.length;
+
+  if (!list.length && allIncidents.length === 0) {
+    el.innerHTML = '<div class="empty-state">No incidents yet.<br>Waiting for logs…</div>';
+    return;
+  }
+  if (!list.length) {
+    el.innerHTML = '<div class="no-results">No incidents match filters.<br><a href="#" onclick="clearFilters();return false;" style="color:var(--accent);">Clear filters</a></div>';
+    return;
+  }
+
+  const { order, map } = groupIncidents(list);
+
+  el.innerHTML = order.map(key => {
+    const items = map.get(key);
+    const collapsed = collapsedGroups.has(key);
+    const hasSelected = items.some(i => i.id === selectedId);
+    const worst = ['CRITICAL','HIGH','MEDIUM','LOW'].find(b => items.some(i => i.blast_radius === b)) || 'LOW';
+
+    const rows = collapsed ? '' : items.map(inc => `
+      <div class="incident-item${inc.id === selectedId ? ' active' : ''}" onclick="selectIncident(${inc.id})">
+        ${activeService === 'all' ? `<div class="svc-label">${esc(inc.service_name||'')}</div>` : ''}
+        <div class="trace">${inc.trace_id}</div>
+        <div class="meta" style="margin-top:4px;">
+          <span class="time">${relTime(inc.detected_at)}</span>
+          <div style="display:flex;align-items:center;gap:4px;">
+            ${prBadge(inc)}
+            <span class="badge ${inc.resolved?'resolved':inc.blast_radius}">${inc.resolved?'resolved':inc.blast_radius}</span>
+          </div>
+        </div>
+      </div>`).join('');
+
+    return `
+      <div class="incident-group">
+        <div class="group-header${hasSelected && collapsed ? ' has-selected' : ''}"
+             onclick="toggleGroup(${JSON.stringify(key)})">
+          <span class="group-arrow">${collapsed ? '▶' : '▼'}</span>
+          <span class="group-name">${esc(key)}</span>
+          <span class="badge ${worst}" style="margin-left:auto;">${items.length}</span>
+        </div>
+        ${rows}
+      </div>`;
+  }).join('');
+}
+
+function selectIncident(id) {
+  selectedId = id;
+  renderAll();
+  renderDetail(id);
+}
+
+// ── Detail panel ──────────────────────────────────────────────────────────────
+function renderDetail(id) {
+  const inc = allIncidents.find(i => i.id === id);
+  if (!inc) return;
+  const logs = (inc.raw_logs||[]).sort((a,b)=>(a.timestamp||'')<(b.timestamp||'')?-1:1);
+
+  document.getElementById('detail-panel').innerHTML = `
+    <div class="detail-header">
+      <div>
+        <h2>${(inc.error_types||[]).join(' + ')||'Incident'}</h2>
+        <div class="sub">
+          <span style="color:var(--purple);font-weight:600;">${esc(inc.service_name||'')}</span>
+          &nbsp;·&nbsp; trace: ${inc.trace_id} &nbsp;·&nbsp; ${fmtTime(inc.detected_at)}
+        </div>
+      </div>
+      <div class="detail-actions">
+        ${prActionBtn(inc)}
+        ${inc.resolved
+          ? '<span class="badge resolved">Resolved</span>'
+          : `<button class="btn" onclick="resolveIncident(${inc.id})">✓ Mark Resolved</button>`}
+      </div>
+    </div>
+
+    <div class="info-grid">
+      <div class="info-box">
+        <div class="label">Blast Radius</div>
+        <div class="content"><span class="badge ${inc.blast_radius}">${inc.blast_radius}</span></div>
+      </div>
+      <div class="info-box">
+        <div class="label">Service</div>
+        <div class="content" style="color:var(--purple);font-weight:600;">${esc(inc.service_name||'—')}</div>
+      </div>
+    </div>
+
+    <div class="section-title">Detected Error Types</div>
+    <div class="error-tags">${(inc.error_types||[]).map(e=>`<span class="error-tag">${esc(e)}</span>`).join('')}</div>
+
+    <div class="rca-box cause"><div class="label">Root Cause</div><div class="content">${esc(inc.root_cause)}</div></div>
+    <div class="rca-box fix"><div class="label">Fix Suggestion</div><div class="content">${esc(inc.fix_suggestion)}</div></div>
+    ${inc.pr_description?`<div class="rca-box pr"><div class="label">PR Description</div><div class="content">${esc(inc.pr_description)}</div></div>`:''}
+    ${prDetailSection(inc)}
+
+    <div class="section-title" style="margin-top:20px;">
+      Incident Timeline — ${logs.length} events, ${groupLogs(logs).length} unique
+    </div>
+    <div class="timeline">${renderTimeline(logs)}</div>`;
+}
+
+// ── Timeline grouping ─────────────────────────────────────────────────────────
+
+function logFingerprint(log) {
+  return `${log.service||''}|${log.error_type||''}|${log.level||''}|${(log.message||'').trim()}`;
+}
+
+function groupLogs(logs) {
+  const order = [];
+  const map = new Map();
+  for (const log of logs) {
+    const fp = logFingerprint(log);
+    if (map.has(fp)) {
+      map.get(fp).duplicates.push(log);
+    } else {
+      const group = { fp, representative: log, duplicates: [] };
+      map.set(fp, group);
+      order.push(group);
+    }
+  }
+  return order;
+}
+
+function renderTimeline(logs) {
+  const groups = groupLogs(logs);
+  return groups.map((g, i) => {
+    const log = g.representative;
+    const count = g.duplicates.length;
+    const gid = `tlg-${i}`;
+    const dupRows = count ? g.duplicates.map(d =>
+      `<div class="tl-dup-row">
+        <span class="tl-time">${fmtTime(d.timestamp)}</span>
+        <span style="color:var(--muted);font-size:11px;">${esc(d.message||'').substring(0,80)}</span>
+      </div>`
+    ).join('') : '';
+
+    return `
+      <div class="timeline-item">
+        <div class="tl-icon ${log.level||'INFO'}">${(log.level||'I')[0]}</div>
+        <div class="tl-body">
+          <div class="tl-header">
+            ${log.service ? `<span class="tl-service">${esc(log.service)}</span>` : ''}
+            ${log.error_type ? `<span class="tl-error">${esc(log.error_type)}</span>` : ''}
+            <span class="tl-time">${fmtTime(log.timestamp)}</span>
+            ${count ? `<span class="tl-count" onclick="toggleLogGroup('${gid}')" title="Click to expand ${count} duplicate(s)">×${count+1} ▾</span>` : ''}
+          </div>
+          <div class="tl-msg" title="${esc(log.message||'')}">${esc(log.message||'')}</div>
+          ${count ? `<div class="tl-duplicates" id="${gid}">${dupRows}</div>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function toggleLogGroup(gid) {
+  const el = document.getElementById(gid);
+  if (!el) return;
+  el.classList.toggle('open');
+  const btn = el.previousElementSibling ? el.closest('.tl-body').querySelector('.tl-count') : null;
+  if (btn) btn.textContent = btn.textContent.includes('▾')
+    ? btn.textContent.replace('▾','▴')
+    : btn.textContent.replace('▴','▾');
+}
+
+// ── Stats + health ────────────────────────────────────────────────────────────
+function updateStats(s) {
+  if (!s) return;
+  document.getElementById('stat-total').textContent = s.total_incidents || 0;
+  document.getElementById('stat-critical').textContent = (s.by_severity||{}).CRITICAL || 0;
+  document.getElementById('stat-high').textContent = (s.by_severity||{}).HIGH || 0;
+  document.getElementById('stat-open').textContent = s.open_incidents || 0;
+  if (s.target_health) renderTargetHealth(s.target_health);
+}
+
+function renderHealthFromStats(s) { if (s?.target_health) renderTargetHealth(s.target_health); }
+
+function renderTargetHealth(h) {
+  const st = (h.status||'UNKNOWN').toUpperCase();
+  const dot = st==='UP'?'green':st==='UNREACHABLE'?'grey':'yellow';
+  document.getElementById('target-health-indicator').innerHTML = `<span class="status-dot ${dot}"></span>Target: ${st}`;
+}
+
+async function fetchAllServiceHealth() {
+  try {
+    const r = await fetch(`${API}/api/services`);
+    const svcs = await r.json();
+    document.getElementById('services-row').innerHTML = svcs.map(s => {
+      const st = (s.health?.status||'UNKNOWN').toUpperCase();
+      const sub = Object.entries(s.health?.services||{}).map(([n,v])=>
+        `<span style="color:var(--muted);font-size:11px;margin-left:4px;">${n}:${v}</span>`).join('');
+      return `<div class="service-chip ${st}"><div class="dot"></div><strong>${esc(s.name)}</strong>&nbsp;${st}${sub}</div>`;
+    }).join('');
+  } catch(e) {}
+}
+
+async function fetchStats() {
+  try {
+    const p = activeService !== 'all' ? `?service=${encodeURIComponent(activeService)}` : '';
+    const s = await (await fetch(`${API}/api/stats${p}`)).json();
+    updateStats(s);
+  } catch(e) {}
+}
+
+// ── Actions ───────────────────────────────────────────────────────────────────
+async function resolveIncident(id) {
+  await fetch(`${API}/api/incidents/${id}/resolve`, { method: 'POST' });
+}
+
+async function triggerAnalyze() {
+  const btn = document.querySelector('.btn.primary');
+  btn.textContent = '⏳ Analyzing…'; btn.disabled = true;
+  try {
+    await fetch(`${API}/api/analyze-now`, { method: 'POST' });
+    showSimpleToast('Poll cycle triggered for all services');
+  } finally { setTimeout(()=>{btn.textContent='⚡ Analyze Now';btn.disabled=false;},3000); }
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function showToast(inc) {
+  const cls = inc.blast_radius==='CRITICAL'?'critical':inc.blast_radius==='HIGH'?'high':'';
+  const d = document.createElement('div');
+  d.className = `toast ${cls}`;
+  d.innerHTML = `<div style="font-weight:600;margin-bottom:4px;"><span class="badge ${inc.blast_radius}" style="margin-right:6px;">${inc.blast_radius}</span>${esc(inc.service_name||'')}</div>
+    <div style="color:var(--muted);font-size:12px;">${(inc.error_types||[]).join(', ')}</div>
+    <div style="font-size:12px;margin-top:4px;">${esc(inc.root_cause)}</div>`;
+  document.getElementById('toast-container').appendChild(d);
+  setTimeout(()=>d.remove(), 7000);
+}
+
+function showSimpleToast(text) {
+  const d = document.createElement('div');
+  d.className='toast'; d.textContent=text;
+  document.getElementById('toast-container').appendChild(d);
+  setTimeout(()=>d.remove(), 4000);
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/\n/g,'<br>'); }
+function fmtTime(ts) { if(!ts) return '—'; try{return new Date(ts).toLocaleTimeString();}catch{return ts;} }
+function relTime(ts) {
+  if(!ts) return '';
+  try {
+    const d=(Date.now()-new Date(ts).getTime())/1000;
+    if(d<60) return `${Math.round(d)}s ago`;
+    if(d<3600) return `${Math.round(d/60)}m ago`;
+    return `${Math.round(d/3600)}h ago`;
+  } catch{return '';}
+}
+
+// ── Inline Dashboard ─────────────────────────────────────────────────────────
+
+const DASH_COLORS = {
+  CRITICAL: '#f85149', HIGH: '#f0883e', MEDIUM: '#d29922', LOW: '#3fb950',
+};
+const DASH_PALETTE = ['#4a90e2','#7c5cbf','#00bcd4','#e91e63','#ff9800',
+                      '#009688','#673ab7','#f44336','#4caf50','#ff5722'];
+
+// Dashboard state
+let dashSvc      = 'all';
+let dashTab      = 'explore';   // 'explore' | 'critical'
+let dashSort     = { col: 'detected_at', dir: -1 };
+let dashTRmins   = 0;           // 0 = All, otherwise minutes
+const dashCharts = {};
+
+Chart.defaults.font.family = "-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif";
+Chart.defaults.font.size   = 10;
+
+function setDashSvc(svc) {
+  dashSvc = svc;
+  document.querySelectorAll('.dash-svc-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.svc === svc));
+  renderDashboard();
+}
+
+function setDashTR(mins) {
+  dashTRmins = mins;
+  document.querySelectorAll('.dash-tr').forEach(c =>
+    c.classList.toggle('active', +c.dataset.m === mins));
+  renderDashCharts();
+}
+
+function setDashTab(tab) {
+  dashTab = tab;
+  document.querySelectorAll('.dash-stab').forEach((t, i) =>
+    t.classList.toggle('active', (i === 0 && tab === 'explore') || (i === 1 && tab === 'critical')));
+  renderDashTable();
+}
+
+function sortDash(col) {
+  dashSort.dir = dashSort.col === col ? -dashSort.dir : -1;
+  dashSort.col = col;
+  document.querySelectorAll('.sort-icon').forEach(el => el.textContent = '⇅');
+  const icon = document.getElementById(`si-${col}`);
+  if (icon) icon.textContent = dashSort.dir === -1 ? '↓' : '↑';
+  renderDashTable();
+}
+
+function dashVisible() {
+  let list = dashSvc === 'all' ? allIncidents : allIncidents.filter(i => i.service_name === dashSvc);
+  if (dashTab === 'critical') list = list.filter(i => i.blast_radius === 'CRITICAL' || i.blast_radius === 'HIGH');
+  return list;
+}
+
+// ── Render dashboard (called from renderAll) ──────────────────────────────────
+function renderDashboard() {
+  renderDashSvcBtns();
+  renderDashCharts();
+  renderDashTable();
+
+  const list = dashVisible();
+  const critHigh = list.filter(i => i.blast_radius === 'CRITICAL' || i.blast_radius === 'HIGH').length;
+  document.getElementById('dash-total-label').textContent =
+    `${list.length} incident${list.length !== 1 ? 's' : ''}`;
+  const cnt = document.getElementById('dash-critical-cnt');
+  if (cnt) cnt.textContent = critHigh;
+}
+
+function renderDashSvcBtns() {
+  const c = document.getElementById('dash-svc-btns');
+  const names = [...new Set(allIncidents.map(i => i.service_name).filter(Boolean))];
+  c.innerHTML = `<button class="dash-svc-btn ${dashSvc==='all'?'active':''}" data-svc="all" onclick="setDashSvc('all')">All</button>` +
+    names.map(n =>
+      `<button class="dash-svc-btn ${dashSvc===n?'active':''}" data-svc="${esc(n)}" onclick="setDashSvc(this.dataset.svc)">${esc(n)}</button>`
+    ).join('');
+}
+
+// ── Charts ────────────────────────────────────────────────────────────────────
+
+// Returns granularity in minutes and ISO slice length based on selected time range
+function bucketConfig() {
+  if (dashTRmins === 0)    return { gran: 60,  slice: 13, fmt: h => h.slice(11)+':00' };  // by hour
+  if (dashTRmins <= 15)    return { gran: 1,   slice: 16, fmt: h => h.slice(11) };        // by minute
+  if (dashTRmins <= 60)    return { gran: 5,   slice: 15, fmt: h => h.slice(11)+'0' };    // 5-min buckets
+  if (dashTRmins <= 360)   return { gran: 15,  slice: 15, fmt: h => h.slice(11) };        // 15-min buckets
+  return                          { gran: 60,  slice: 13, fmt: h => h.slice(11)+':00' };  // by hour
+}
+
+function applyTimeRange(list) {
+  if (!dashTRmins) return list;
+  const cutoff = new Date(Date.now() - dashTRmins * 60 * 1000).toISOString();
+  return list.filter(i => (i.detected_at || '') >= cutoff);
+}
+
+function bucketData(list) {
+  const { gran, slice } = bucketConfig();
+  const map = new Map();
+
+  // Fill empty buckets for the selected time range
+  if (dashTRmins) {
+    const now = Date.now();
+    const steps = Math.ceil(dashTRmins / gran);
+    for (let i = steps; i >= 0; i--) {
+      const t = new Date(now - i * gran * 60 * 1000).toISOString().slice(0, slice);
+      if (!map.has(t)) map.set(t, { total: 0, CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 });
+    }
+  }
+
+  for (const inc of list) {
+    const key = (inc.detected_at || '').slice(0, slice);
+    if (!key) continue;
+    if (!map.has(key)) map.set(key, { total: 0, CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 });
+    const b = map.get(key);
+    b.total++;
+    b[inc.blast_radius] = (b[inc.blast_radius] || 0) + 1;
+  }
+  return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+function renderDashCharts() {
+  const list = applyTimeRange(dashVisible());
+  const buckets = bucketData(list);
+  const { fmt }  = bucketConfig();
+  const labels   = buckets.map(([h]) => fmt(h));
+
+  // ── Chart 1: Incidents over time (stacked area) ──
+  const services = [...new Set(list.map(i => i.service_name).filter(Boolean))];
+  let ds1;
+  if (services.length > 1) {
+    const svcBuckets = new Map(services.map(s => [s, new Array(buckets.length).fill(0)]));
+    list.forEach(inc => {
+      const h = (inc.detected_at || '').slice(0, 13);
+      const idx = buckets.findIndex(([bh]) => bh === h);
+      if (idx >= 0 && svcBuckets.has(inc.service_name)) svcBuckets.get(inc.service_name)[idx]++;
+    });
+    ds1 = services.map((s, i) => ({
+      label: s,
+      data: svcBuckets.get(s),
+      backgroundColor: DASH_PALETTE[i % DASH_PALETTE.length] + '55',
+      borderColor:     DASH_PALETTE[i % DASH_PALETTE.length],
+      borderWidth: 1.5, fill: true, tension: 0.4, pointRadius: 0, pointHoverRadius: 4,
+    }));
+  } else {
+    ds1 = [
+      { label: 'CRITICAL', data: buckets.map(([,v]) => v.CRITICAL), backgroundColor: '#f8514944', borderColor: '#f85149', borderWidth: 1.5, fill: true, tension: 0.4, pointRadius: 0, pointHoverRadius: 4 },
+      { label: 'HIGH',     data: buckets.map(([,v]) => v.HIGH),     backgroundColor: '#f0883e44', borderColor: '#f0883e', borderWidth: 1.5, fill: true, tension: 0.4, pointRadius: 0, pointHoverRadius: 4 },
+      { label: 'MEDIUM',   data: buckets.map(([,v]) => v.MEDIUM),   backgroundColor: '#d2992244', borderColor: '#d29922', borderWidth: 1.5, fill: true, tension: 0.4, pointRadius: 0, pointHoverRadius: 4 },
+      { label: 'LOW',      data: buckets.map(([,v]) => v.LOW),      backgroundColor: '#3fb95044', borderColor: '#3fb950', borderWidth: 1.5, fill: true, tension: 0.4, pointRadius: 0, pointHoverRadius: 4 },
+    ].filter(d => d.data.some(v => v > 0));
+  }
+
+  makeDashChart('dash-chart-timeline', labels, ds1);
+
+  // Stats for chart 1
+  const svcsStats = services.length > 1
+    ? services.slice(0,2).map((s,i) => `<div class="dash-stat"><div class="val" style="color:${DASH_PALETTE[i]}">${list.filter(x=>x.service_name===s).length}</div><div class="lbl">${s}</div></div>`).join('')
+    : `<div class="dash-stat"><div class="val" style="color:#f85149">${list.filter(x=>x.blast_radius==='CRITICAL').length}</div><div class="lbl">Critical</div></div>`+
+      `<div class="dash-stat"><div class="val" style="color:#f0883e">${list.filter(x=>x.blast_radius==='HIGH').length}</div><div class="lbl">High</div></div>`;
+  document.getElementById('dash-stats-1').innerHTML = svcsStats;
+
+  const leg1items = ds1.map(d => `<div class="dash-legend-item"><div class="dash-legend-dot" style="background:${d.borderColor}"></div>${d.label}</div>`).join('');
+  document.getElementById('dash-legend-1').innerHTML = leg1items;
+
+  // ── Chart 2: Error type distribution (area chart over time) ──
+  const errorMap = new Map();
+  list.forEach(inc => (inc.error_types||[]).forEach(e => errorMap.set(e, (errorMap.get(e)||0)+1)));
+  const topErrors = [...errorMap.entries()].sort((a,b)=>b[1]-a[1]).slice(0,5);
+
+  const { slice } = bucketConfig();
+  const ds2 = topErrors.map(([name], i) => {
+    const data = buckets.map(([h]) => {
+      return list.filter(inc => (inc.detected_at||'').slice(0,slice) === h && (inc.error_types||[]).includes(name)).length;
+    });
+    return {
+      label: name,
+      data,
+      backgroundColor: DASH_PALETTE[(i+4) % DASH_PALETTE.length] + '55',
+      borderColor:     DASH_PALETTE[(i+4) % DASH_PALETTE.length],
+      borderWidth: 1.5, fill: true, tension: 0.4, pointRadius: 0, pointHoverRadius: 4,
+    };
+  });
+
+  makeDashChart('dash-chart-errors', labels, ds2);
+
+  const totalErrors = [...errorMap.values()].reduce((a,b)=>a+b,0);
+  const top2 = topErrors.slice(0,2);
+  document.getElementById('dash-stats-2').innerHTML = top2.map((([name, cnt], i) =>
+    `<div class="dash-stat"><div class="val" style="color:${DASH_PALETTE[(i+4)%DASH_PALETTE.length]}">${cnt}</div><div class="lbl">${name.replace(/_/g,' ')}</div></div>`
+  )).join('');
+  document.getElementById('dash-legend-2').innerHTML = ds2.map(d =>
+    `<div class="dash-legend-item"><div class="dash-legend-dot" style="background:${d.borderColor}"></div>${d.label}</div>`).join('');
+}
+
+function makeDashChart(id, labels, datasets) {
+  if (dashCharts[id]) dashCharts[id].destroy();
+  const canvas = document.getElementById(id);
+  if (!canvas) return;
+  dashCharts[id] = new Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: { duration: 250 },
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: false },
+        tooltip: { backgroundColor: '#fff', borderColor: '#ddd', borderWidth: 1,
+                   titleColor: '#333', bodyColor: '#555', padding: 8 } },
+      scales: {
+        x: { grid: { color: '#f0f0f0' }, ticks: { color: '#aaa', maxTicksLimit: 8, maxRotation: 0 } },
+        y: { grid: { color: '#f0f0f0' }, ticks: { color: '#aaa', precision: 0 }, beginAtZero: true },
+      },
+    },
+  });
+}
+
+// ── Table ─────────────────────────────────────────────────────────────────────
+function renderDashTable() {
+  const search     = (document.getElementById('dash-search')?.value || '').toLowerCase();
+  const hideResolved = document.getElementById('dash-hide-resolved')?.checked;
+  const hideLow    = document.getElementById('dash-hide-low')?.checked;
+  const blastOrder = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+
+  let list = dashVisible();
+  if (hideResolved) list = list.filter(i => !i.resolved);
+  if (hideLow)      list = list.filter(i => i.blast_radius !== 'LOW');
+  if (search) list = list.filter(i =>
+    (i.trace_id||'').includes(search) ||
+    (i.service_name||'').toLowerCase().includes(search) ||
+    (i.error_types||[]).some(e => e.toLowerCase().includes(search)) ||
+    (i.root_cause||'').toLowerCase().includes(search)
+  );
+
+  list = [...list].sort((a, b) => {
+    let av = a[dashSort.col], bv = b[dashSort.col];
+    if (dashSort.col === 'blast_radius') { av = blastOrder[av]??9; bv = blastOrder[bv]??9; }
+    if (dashSort.col === 'log_count')    { av = (a.raw_logs||[]).length; bv = (b.raw_logs||[]).length; }
+    if (av < bv) return dashSort.dir;
+    if (av > bv) return -dashSort.dir;
+    return 0;
+  });
+
+  const maxLogs = Math.max(1, ...list.map(i => (i.raw_logs||[]).length));
+  const tbody = document.getElementById('dash-table-body');
+  if (!list.length) {
+    tbody.innerHTML = `<tr class="dash-empty-row"><td colspan="7">No incidents match the current filters.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = list.map(inc => {
+    const logCount = (inc.raw_logs||[]).length;
+    const barW = Math.round((logCount / maxLogs) * 80);
+    const errorStr = (inc.error_types||[]).slice(0,2).join(', ') + ((inc.error_types||[]).length > 2 ? '…' : '');
+    const prHtml = inc.pr_url
+      ? `<a href="${inc.pr_url}" target="_blank" class="dash-pr-link" onclick="event.stopPropagation()">⎇ #${inc.pr_number}</a>`
+      : inc.pr_status === 'pending' ? '<span style="color:#f57f17;font-size:11px;">⏳</span>'
+      : '—';
+
+    return `<tr class="${inc.id === selectedId ? 'active-row' : ''}" onclick="selectIncident(${inc.id})">
+      <td class="trace">${(inc.trace_id||'').slice(0,16)}</td>
+      <td>${esc(inc.service_name||'—')}</td>
+      <td style="font-size:11px;font-family:monospace;">${esc(errorStr)}</td>
+      <td><span class="dash-badge ${inc.resolved?'resolved':inc.blast_radius}">${inc.resolved?'Resolved':inc.blast_radius}</span></td>
+      <td>${logCount}<div class="sbar" style="width:${barW}px"></div></td>
+      <td style="color:#888;">${relTime(inc.detected_at)}</td>
+      <td>${prHtml}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── PR helpers ────────────────────────────────────────────────────────────────
+
+function prBadge(inc) {
+  const s = inc.pr_status;
+  if (!s || s === 'none') return '';
+  if (s === 'created') return `<span class="pr-badge created">⎇ PR #${inc.pr_number||'?'}</span>`;
+  if (s === 'pending') return `<span class="pr-badge pending">⏳ PR…</span>`;
+  if (s === 'failed')  return `<span class="pr-badge failed">✗ PR</span>`;
+  return '';
+}
+
+function prActionBtn(inc) {
+  const s = inc.pr_status;
+  if (s === 'created' && inc.pr_url)
+    return `<a href="${inc.pr_url}" target="_blank" class="btn" style="color:var(--green);border-color:var(--green);">⎇ View PR #${inc.pr_number}</a>`;
+  if (s === 'pending')
+    return `<button class="btn" disabled>⏳ Creating PR…</button>`;
+  if (s === 'failed')
+    return `<button class="btn" onclick="triggerCreatePr(${inc.id})" title="Retry PR creation">↺ Retry PR</button>`;
+  // none or skipped — show Create PR button
+  return `<button class="btn" onclick="triggerCreatePr(${inc.id})">⎇ Create PR</button>`;
+}
+
+function prDetailSection(inc) {
+  const s = inc.pr_status;
+  if (!s || s === 'none') return '';
+  if (s === 'created') return `
+    <div class="rca-box github">
+      <div class="label">GitHub Pull Request</div>
+      <div class="content">
+        <a href="${inc.pr_url}" target="_blank" class="pr-link">⎇ PR #${inc.pr_number} — View on GitHub</a>
+        ${inc.pr_branch ? `<br><span style="color:var(--muted);font-size:12px;">Branch: <code>${inc.pr_branch}</code></span>` : ''}
+      </div>
+    </div>`;
+  if (s === 'failed') return `
+    <div class="rca-box" style="border-left:3px solid var(--red)">
+      <div class="label">GitHub PR</div>
+      <div class="content" style="color:var(--red);">PR creation failed — check GITHUB_TOKEN and repo access.<br>
+        <button class="btn" style="margin-top:6px;" onclick="triggerCreatePr(${inc.id})">↺ Retry</button>
+      </div>
+    </div>`;
+  if (s === 'pending') return `
+    <div class="rca-box github">
+      <div class="label">GitHub PR</div>
+      <div class="content" style="color:var(--yellow);">⏳ Creating pull request…</div>
+    </div>`;
+  return '';
+}
+
+async function triggerCreatePr(id) {
+  const inc = allIncidents.find(i => i.id === id);
+  if (inc) { inc.pr_status = 'pending'; renderAll(); if (selectedId === id) renderDetail(id); }
+  try {
+    const r = await fetch(`${API}/api/incidents/${id}/create-pr`, { method: 'POST' });
+    if (!r.ok) { const e = await r.json(); showSimpleToast(`PR error: ${e.detail}`); }
+  } catch(e) { showSimpleToast('Failed to start PR creation'); }
+}
+
+function showPrToast(msg) {
+  const d = document.createElement('div');
+  d.className = 'toast';
+  d.style.borderColor = 'var(--green)';
+  d.innerHTML = `<div style="font-weight:600;margin-bottom:4px;">⎇ Pull Request Created</div>
+    <a href="${msg.pr_url}" target="_blank" style="color:var(--green);">PR #${msg.pr_number} — View on GitHub</a>`;
+  document.getElementById('toast-container').appendChild(d);
+  setTimeout(() => d.remove(), 10000);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+connect();
+setInterval(fetchStats, 30000);
+setInterval(renderAll, 30000);            // refresh relative timestamps
+setInterval(fetchAllServiceHealth, 30000);
+</script>
+</body>
+</html>

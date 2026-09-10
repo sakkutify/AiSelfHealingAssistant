@@ -1,0 +1,16 @@
+services:
+  healer:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - TARGET_URL=${TARGET_URL:-http://host.docker.internal:8080}
+      - POLL_INTERVAL=${POLL_INTERVAL:-30}
+      - DB_PATH=/data/healer.db
+    volumes:
+      - healer_data:/data
+    restart: unless-stopped
+
+volumes:
+  healer_data:

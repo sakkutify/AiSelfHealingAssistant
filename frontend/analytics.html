@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Healer — Analytics</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --surface2: #21262d; --border: #30363d;
+    --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
+    --green: #3fb950; --yellow: #d29922; --red: #f85149; --purple: #bc8cff; --orange: #f0883e;
+    --critical: #f85149; --high: #f0883e; --medium: #d29922; --low: #3fb950;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; font-size: 14px; }
+
+  /* Nav */
+  .nav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; align-items: center; gap: 0; height: 50px; position: sticky; top: 0; z-index: 100; }
+  .nav-brand { display: flex; align-items: center; gap: 8px; margin-right: 24px; text-decoration: none; color: var(--text); }
+  .nav-brand .logo { width: 24px; height: 24px; background: linear-gradient(135deg,#58a6ff,#bc8cff); border-radius: 5px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 13px; }
+  .nav-brand h1 { font-size: 16px; font-weight: 600; }
+  .nav-tab { padding: 0 16px; height: 100%; display: flex; align-items: center; font-size: 13px; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; transition: all .15s; cursor: pointer; }
+  .nav-tab:hover { color: var(--text); }
+  .nav-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .nav-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .refresh-badge { font-size: 11px; color: var(--muted); }
+  .refresh-badge.live { color: var(--green); }
+
+  /* Filter bar */
+  .filter-bar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 24px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .filter-bar label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .filter-bar select, .filter-bar input { background: var(--surface2); border: 1px solid var(--border); color: var(--text); border-radius: 5px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
+  .filter-bar select:focus, .filter-bar input:focus { outline: none; border-color: var(--accent); }
+  .time-chips { display: flex; gap: 4px; }
+  .tchip { padding: 4px 12px; border-radius: 5px; font-size: 12px; font-weight: 500; cursor: pointer; border: 1px solid var(--border); color: var(--muted); background: transparent; transition: all .15s; }
+  .tchip:hover { border-color: var(--accent); color: var(--text); }
+  .tchip.on { background: rgba(88,166,255,.15); color: var(--accent); border-color: var(--accent); }
+  .filter-bar .sep { width: 1px; height: 20px; background: var(--border); }
+  .active-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+  .af-chip { display: flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 12px; font-size: 11px; background: rgba(88,166,255,.12); color: var(--accent); border: 1px solid rgba(88,166,255,.3); }
+  .af-chip span { cursor: pointer; opacity: .7; } .af-chip span:hover { opacity: 1; }
+  .clear-btn { font-size: 11px; color: var(--muted); cursor: pointer; padding: 3px 8px; border: 1px solid var(--border); border-radius: 4px; background: transparent; }
+  .clear-btn:hover { color: var(--text); background: var(--surface2); }
+
+  /* KPI cards */
+  .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; padding: 20px 24px 0; }
+  .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+  .kpi .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 6px; }
+  .kpi .value { font-size: 28px; font-weight: 700; line-height: 1; }
+  .kpi.critical .value { color: var(--critical); }
+  .kpi.high .value { color: var(--high); }
+  .kpi.accent .value { color: var(--accent); }
+  .kpi.green .value { color: var(--green); }
+  .kpi.purple .value { color: var(--purple); }
+  .kpi .sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  /* Chart grid */
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px 24px 24px; }
+  .grid .span2 { grid-column: 1 / -1; }
+  .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .chart-card-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .chart-card-header h3 { font-size: 13px; font-weight: 600; }
+  .chart-card-header .actions { display: flex; gap: 6px; align-items: center; }
+  .chart-card-header select { background: var(--surface2); border: 1px solid var(--border); color: var(--text); border-radius: 4px; padding: 3px 6px; font-size: 11px; }
+  .chart-card-body { padding: 16px; position: relative; }
+  .chart-card-body.tall { height: 260px; }
+  .chart-card-body.short { height: 220px; }
+  .chart-note { font-size: 11px; color: var(--muted); margin-top: 8px; text-align: center; }
+
+  /* Click hint */
+  .click-hint { font-size: 10px; color: var(--muted); font-style: italic; }
+
+  /* Active filter pills */
+  .drill-label { font-size: 11px; color: var(--accent); background: rgba(88,166,255,.1); border: 1px solid rgba(88,166,255,.25); padding: 2px 8px; border-radius: 10px; cursor: pointer; }
+  .drill-label:hover { background: rgba(88,166,255,.2); }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 5px; height: 5px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* Spinner */
+  .loading { display: flex; align-items: center; justify-content: center; height: 200px; color: var(--muted); gap: 10px; }
+  .spinner { width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+  @keyframes spin { to{transform:rotate(360deg)} }
+</style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav class="nav">
+  <a class="nav-brand" href="/">
+    <div class="logo">⚕</div>
+    <h1>Healer</h1>
+  </a>
+  <a class="nav-tab" href="/">Incidents</a>
+  <a class="nav-tab active" href="/analytics">Analytics</a>
+  <div class="nav-right">
+    <span class="refresh-badge" id="refresh-badge">● Loading…</span>
+    <button onclick="loadData()" style="padding:4px 12px;border-radius:5px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer;font-size:12px;">↺ Refresh</button>
+  </div>
+</nav>
+
+<!-- Filter bar -->
+<div class="filter-bar">
+  <label>Time Range</label>
+  <div class="time-chips">
+    <div class="tchip" data-h="1"  onclick="setHours(1)">1H</div>
+    <div class="tchip" data-h="6"  onclick="setHours(6)">6H</div>
+    <div class="tchip" data-h="24" onclick="setHours(24)">24H</div>
+    <div class="tchip" data-h="168" onclick="setHours(168)">7D</div>
+    <div class="tchip on" data-h="0" onclick="setHours(0)">All</div>
+  </div>
+  <div class="sep"></div>
+  <label>Service</label>
+  <select id="svc-filter" onchange="loadData()">
+    <option value="">All Services</option>
+  </select>
+  <div class="sep"></div>
+  <label>Drill-down</label>
+  <div class="active-filters" id="active-filters"></div>
+  <button class="clear-btn" onclick="clearDrill()">Clear</button>
+</div>
+
+<!-- KPIs -->
+<div class="kpis">
+  <div class="kpi accent"><div class="label">Total Incidents</div><div class="value" id="kpi-total">—</div></div>
+  <div class="kpi critical"><div class="label">Critical</div><div class="value" id="kpi-critical">—</div></div>
+  <div class="kpi high"><div class="label">High</div><div class="value" id="kpi-high">—</div></div>
+  <div class="kpi green"><div class="label">Open</div><div class="value" id="kpi-open">—</div></div>
+  <div class="kpi purple"><div class="label">PRs Created</div><div class="value" id="kpi-pr">—</div></div>
+</div>
+
+<!-- Charts -->
+<div class="grid">
+
+  <!-- Timeline - full width -->
+  <div class="chart-card span2">
+    <div class="chart-card-header">
+      <h3>Incidents Over Time</h3>
+      <div class="actions">
+        <span class="click-hint">Click bar to drill-down by hour</span>
+        <select id="timeline-mode" onchange="renderTimeline()">
+          <option value="stacked">Stacked by Severity</option>
+          <option value="total">Total Only</option>
+        </select>
+      </div>
+    </div>
+    <div class="chart-card-body tall"><canvas id="chart-timeline"></canvas></div>
+  </div>
+
+  <!-- Blast Radius -->
+  <div class="chart-card">
+    <div class="chart-card-header">
+      <h3>Blast Radius Distribution</h3>
+      <span class="click-hint">Click slice to filter</span>
+    </div>
+    <div class="chart-card-body short"><canvas id="chart-blast"></canvas></div>
+    <p class="chart-note" id="note-blast"></p>
+  </div>
+
+  <!-- By Service -->
+  <div class="chart-card">
+    <div class="chart-card-header">
+      <h3>Incidents by Service</h3>
+      <span class="click-hint">Click bar to filter</span>
+    </div>
+    <div class="chart-card-body short"><canvas id="chart-service"></canvas></div>
+  </div>
+
+  <!-- Error Types -->
+  <div class="chart-card span2">
+    <div class="chart-card-header">
+      <h3>Top Error Types</h3>
+      <div class="actions">
+        <span class="click-hint">Click bar to filter</span>
+        <select id="top-n" onchange="renderErrorTypes()">
+          <option value="10">Top 10</option>
+          <option value="15" selected>Top 15</option>
+          <option value="20">Top 20</option>
+        </select>
+      </div>
+    </div>
+    <div class="chart-card-body tall"><canvas id="chart-errors"></canvas></div>
+  </div>
+
+  <!-- Log Level -->
+  <div class="chart-card">
+    <div class="chart-card-header">
+      <h3>Log Level Distribution</h3>
+      <span class="click-hint">From raw incident logs</span>
+    </div>
+    <div class="chart-card-body short"><canvas id="chart-level"></canvas></div>
+  </div>
+
+  <!-- PR Status -->
+  <div class="chart-card">
+    <div class="chart-card-header">
+      <h3>Pull Request Status</h3>
+      <span class="click-hint">Click slice to filter</span>
+    </div>
+    <div class="chart-card-body short"><canvas id="chart-pr"></canvas></div>
+  </div>
+
+</div>
+
+<script>
+const API = '';
+Chart.defaults.color = '#8b949e';
+Chart.defaults.borderColor = '#30363d';
+Chart.defaults.font.family = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif";
+Chart.defaults.font.size = 11;
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let rawData = null;
+let selectedHours = 0;
+let drill = {};   // { blast_radius: 'CRITICAL', error_type: 'X', service: 'Y', hour: 'Z' }
+const charts = {};
+
+const COLORS = {
+  CRITICAL: '#f85149', HIGH: '#f0883e', MEDIUM: '#d29922', LOW: '#3fb950',
+  ERROR: '#f85149', WARN: '#d29922', INFO: '#58a6ff',
+  created: '#3fb950', none: '#8b949e', failed: '#f85149', pending: '#d29922', skipped: '#30363d',
+};
+const PALETTE = ['#58a6ff','#bc8cff','#3fb950','#f0883e','#f85149','#d29922',
+                 '#79c0ff','#d2a8ff','#56d364','#ffa657','#ff7b72','#e3b341',
+                 '#388bfd','#a371f7','#2ea043','#d18616'];
+
+// ── Filters ───────────────────────────────────────────────────────────────────
+function setHours(h) {
+  selectedHours = h;
+  document.querySelectorAll('.tchip').forEach(c => c.classList.toggle('on', +c.dataset.h === h));
+  loadData();
+}
+
+function applyDrill(key, val) {
+  if (drill[key] === val) delete drill[key];
+  else drill[key] = val;
+  renderDrillPills();
+  renderAll();
+}
+
+function clearDrill() { drill = {}; renderDrillPills(); renderAll(); }
+
+function renderDrillPills() {
+  const c = document.getElementById('active-filters');
+  c.innerHTML = Object.entries(drill).map(([k,v]) =>
+    `<span class="af-chip">${k}: <strong>${v}</strong> <span onclick="applyDrill('${k}','${v}')">✕</span></span>`
+  ).join('');
+}
+
+function filteredData() {
+  if (!rawData) return rawData;
+  let d = JSON.parse(JSON.stringify(rawData));
+  // Apply drill-down filters by re-computing from timeline/counts
+  // For charts we pass drill state directly; charts handle their own filtering
+  return d;
+}
+
+// ── Load data ─────────────────────────────────────────────────────────────────
+async function loadData() {
+  document.getElementById('refresh-badge').textContent = '● Loading…';
+  document.getElementById('refresh-badge').className = 'refresh-badge';
+
+  const svc = document.getElementById('svc-filter').value;
+  const params = new URLSearchParams();
+  if (svc) params.set('service', svc);
+  if (selectedHours) params.set('hours', selectedHours);
+
+  try {
+    const r = await fetch(`${API}/api/analytics?${params}`);
+    rawData = await r.json();
+
+    // Populate service dropdown
+    const sel = document.getElementById('svc-filter');
+    const cur = sel.value;
+    const svcs = rawData.configured_services || [];
+    sel.innerHTML = '<option value="">All Services</option>' +
+      svcs.map(s => `<option value="${s}" ${s===cur?'selected':''}>${s}</option>`).join('');
+
+    renderAll();
+    document.getElementById('refresh-badge').textContent = '● Live';
+    document.getElementById('refresh-badge').className = 'refresh-badge live';
+  } catch(e) {
+    document.getElementById('refresh-badge').textContent = '● Error';
+    console.error(e);
+  }
+}
+
+function renderAll() {
+  if (!rawData) return;
+  renderKPIs();
+  renderTimeline();
+  renderBlast();
+  renderService();
+  renderErrorTypes();
+  renderLogLevel();
+  renderPR();
+}
+
+// ── KPIs ──────────────────────────────────────────────────────────────────────
+function renderKPIs() {
+  const d = rawData;
+  document.getElementById('kpi-total').textContent = d.total;
+  document.getElementById('kpi-critical').textContent = d.by_blast_radius?.CRITICAL || 0;
+  document.getElementById('kpi-high').textContent = d.by_blast_radius?.HIGH || 0;
+  document.getElementById('kpi-open').textContent = d.open;
+  document.getElementById('kpi-pr').textContent = d.by_pr_status?.created || 0;
+}
+
+// ── Timeline ──────────────────────────────────────────────────────────────────
+function renderTimeline() {
+  if (!rawData) return;
+  const mode = document.getElementById('timeline-mode').value;
+  const timeline = rawData.timeline || [];
+  const labels = timeline.map(t => t.hour.replace('T', ' ') + ':00');
+
+  const datasets = mode === 'stacked' ? [
+    { label: 'CRITICAL', data: timeline.map(t=>t.CRITICAL||0), backgroundColor: COLORS.CRITICAL+'cc', borderColor: COLORS.CRITICAL, borderWidth: 1, stack: 'a' },
+    { label: 'HIGH',     data: timeline.map(t=>t.HIGH||0),     backgroundColor: COLORS.HIGH+'cc',     borderColor: COLORS.HIGH,     borderWidth: 1, stack: 'a' },
+    { label: 'MEDIUM',   data: timeline.map(t=>t.MEDIUM||0),   backgroundColor: COLORS.MEDIUM+'cc',   borderColor: COLORS.MEDIUM,   borderWidth: 1, stack: 'a' },
+    { label: 'LOW',      data: timeline.map(t=>t.LOW||0),      backgroundColor: COLORS.LOW+'cc',      borderColor: COLORS.LOW,      borderWidth: 1, stack: 'a' },
+  ] : [
+    { label: 'Incidents', data: timeline.map(t=>t.total||0), backgroundColor: '#58a6ff44', borderColor: '#58a6ff', borderWidth: 2, fill: true, tension: 0.3 },
+  ];
+
+  const type = mode === 'stacked' ? 'bar' : 'line';
+  makeChart('chart-timeline', type, labels, datasets, {
+    onClick: (e, els, chart) => {
+      if (!els.length) return;
+      const hour = timeline[els[0].index]?.hour;
+      if (hour) applyDrill('hour', hour);
+    },
+    scales: {
+      x: { stacked: mode === 'stacked', ticks: { maxTicksLimit: 12, maxRotation: 30 } },
+      y: { stacked: mode === 'stacked', beginAtZero: true, ticks: { precision: 0 } },
+    },
+  });
+}
+
+// ── Blast Radius ──────────────────────────────────────────────────────────────
+function renderBlast() {
+  const data = rawData.by_blast_radius || {};
+  const order = ['CRITICAL','HIGH','MEDIUM','LOW'];
+  const labels = order.filter(k => data[k]);
+  const values = labels.map(k => data[k]);
+  const colors = labels.map(k => COLORS[k]);
+  const selected = drill.blast_radius;
+
+  makeChart('chart-blast', 'doughnut', labels, [{
+    data: values,
+    backgroundColor: colors.map((c,i) => labels[i] === selected ? c : c + '99'),
+    borderColor: colors.map((c,i) => labels[i] === selected ? '#fff' : c),
+    borderWidth: labels.map((l,i) => l === selected ? 2 : 1),
+    hoverOffset: 6,
+  }], {
+    onClick: (e, els, chart) => {
+      if (!els.length) return;
+      applyDrill('blast_radius', labels[els[0].index]);
+    },
+    plugins: { legend: { position: 'right' } },
+  });
+
+  document.getElementById('note-blast').textContent =
+    selected ? `Filtered: ${selected}` : 'Click a slice to drill down';
+}
+
+// ── By Service ────────────────────────────────────────────────────────────────
+function renderService() {
+  const data = rawData.by_service || {};
+  const labels = Object.keys(data);
+  const values = Object.values(data);
+  const selected = drill.service;
+
+  makeChart('chart-service', 'bar', labels, [{
+    label: 'Incidents',
+    data: values,
+    backgroundColor: labels.map((l,i) => l === selected ? PALETTE[i % PALETTE.length] : PALETTE[i % PALETTE.length] + '88'),
+    borderColor: labels.map((l,i) => PALETTE[i % PALETTE.length]),
+    borderWidth: 1, borderRadius: 4,
+  }], {
+    onClick: (e, els, chart) => {
+      if (!els.length) return;
+      applyDrill('service', labels[els[0].index]);
+    },
+    scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+    plugins: { legend: { display: false } },
+  });
+}
+
+// ── Error Types ───────────────────────────────────────────────────────────────
+function renderErrorTypes() {
+  if (!rawData) return;
+  const n = parseInt(document.getElementById('top-n').value, 10);
+  const data = rawData.by_error_type || {};
+  const sorted = Object.entries(data).sort((a,b) => b[1]-a[1]).slice(0, n);
+  const labels = sorted.map(e => e[0]);
+  const values = sorted.map(e => e[1]);
+  const selected = drill.error_type;
+
+  makeChart('chart-errors', 'bar', labels, [{
+    label: 'Count',
+    data: values,
+    backgroundColor: labels.map((l,i) => l === selected ? PALETTE[i % PALETTE.length] : PALETTE[i % PALETTE.length] + '88'),
+    borderColor: labels.map((l,i) => PALETTE[i % PALETTE.length]),
+    borderWidth: 1, borderRadius: 4,
+  }], {
+    onClick: (e, els, chart) => {
+      if (!els.length) return;
+      applyDrill('error_type', labels[els[0].index]);
+    },
+    indexAxis: 'y',
+    scales: {
+      x: { beginAtZero: true, ticks: { precision: 0 } },
+      y: { ticks: { font: { family: 'monospace', size: 10 } } },
+    },
+    plugins: { legend: { display: false } },
+  });
+}
+
+// ── Log Level ─────────────────────────────────────────────────────────────────
+function renderLogLevel() {
+  const data = rawData.by_log_level || {};
+  const labels = Object.keys(data);
+  const values = Object.values(data);
+
+  makeChart('chart-level', 'pie', labels, [{
+    data: values,
+    backgroundColor: labels.map(l => (COLORS[l] || '#58a6ff') + 'cc'),
+    borderColor: labels.map(l => COLORS[l] || '#58a6ff'),
+    borderWidth: 1, hoverOffset: 6,
+  }], {
+    plugins: { legend: { position: 'right' } },
+  });
+}
+
+// ── PR Status ─────────────────────────────────────────────────────────────────
+function renderPR() {
+  const data = rawData.by_pr_status || {};
+  const labels = Object.keys(data);
+  const values = Object.values(data);
+  const selected = drill.pr_status;
+
+  const labelMap = { created: 'Created', none: 'No PR', failed: 'Failed', pending: 'Pending', skipped: 'Skipped' };
+
+  makeChart('chart-pr', 'doughnut', labels.map(l => labelMap[l] || l), [{
+    data: values,
+    backgroundColor: labels.map(l => (COLORS[l] || '#8b949e') + 'cc'),
+    borderColor: labels.map(l => COLORS[l] || '#8b949e'),
+    borderWidth: 1, hoverOffset: 6,
+  }], {
+    onClick: (e, els, chart) => {
+      if (!els.length) return;
+      applyDrill('pr_status', labels[els[0].index]);
+    },
+    plugins: { legend: { position: 'right' } },
+  });
+}
+
+// ── Chart factory ─────────────────────────────────────────────────────────────
+function makeChart(id, type, labels, datasets, extraOpts = {}) {
+  if (charts[id]) { charts[id].destroy(); }
+  const ctx = document.getElementById(id).getContext('2d');
+  charts[id] = new Chart(ctx, {
+    type,
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 300 },
+      plugins: {
+        legend: { labels: { color: '#8b949e', boxWidth: 12, padding: 12 } },
+        tooltip: {
+          backgroundColor: '#21262d',
+          borderColor: '#30363d',
+          borderWidth: 1,
+          titleColor: '#e6edf3',
+          bodyColor: '#8b949e',
+          padding: 10,
+        },
+        ...extraOpts.plugins,
+      },
+      scales: extraOpts.scales || {},
+      onClick: extraOpts.onClick,
+      indexAxis: extraOpts.indexAxis,
+    },
+  });
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadData();
+setInterval(loadData, 30000);
+</script>
+</body>
+</html>
